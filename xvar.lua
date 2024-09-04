@@ -397,6 +397,21 @@ local __sum = function(op1)
     return sum
 end
 
+local __sum_with_nil = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return 0
+    end
+
+    local sum = 0
+    for _, v in pairs(op1) do
+        if v ~= nil and v ~= xvar_err_nil then
+            sum = sum + v
+        end
+    end
+
+    return sum
+end
+
 local __x_index = nil
 local meta_xvar = nil
 
@@ -1145,6 +1160,27 @@ xvar.x_ge = function(x1, x2)
 end
 xvar[">="] = xvar.x_ge
 
+local __add_with_nil = function(op1, op2)
+    if op1 == nil or op1 == xvar_err_nil then
+        if op2 == nil or op2 == xvar_err_nil then
+            return 0
+        end
+        return op2
+    else
+        if op2 == nil or op2 == xvar_err_nil then
+            return op1
+        end
+        return op1 + op2
+    end
+    return op1 + op2
+end
+
+xvar.x_add_with_nil = function (x1, x2)
+    return xvar_op2(__add_with_nil, x1, x2)
+end
+
+xvar["?+"] = xvar.x_add_with_nil
+
 
 xvar.x_filter = function(x1, x2)
     return xvar_op2(__filter, x1, x2)
@@ -1170,6 +1206,10 @@ end
 
 xvar.x_sum = function(x1)
     return xvar_op1(__sum, x1)
+end
+
+xvar.x_sum_with_nil = function(x1)
+    return xvar_op1(__sum_with_nil, x1)
 end
 
 xvar.x_pairs = function(x)
@@ -1373,6 +1413,12 @@ x_operators = {
     ["()"] = xvar.x_call,
     ["not"] = __lnot,
     ["#"] = xvar.x_len,
+
+    ["?+"] = xvar.x_add_with_nil
+    -- ["-"] = meta_xvar["__sub"],
+    -- ["*"] = meta_xvar["__mul"],
+    -- ["/"] = meta_xvar["__div"],
+
 }
 
 xvar.x_op = function(op1, operator, op2)
@@ -1513,7 +1559,10 @@ g_xvarOpNames = {
     [__indexof] = "xvar.indexof",
 
     [__sum] = "xvar.sum",
+    [__sum_with_nil] = "xvar.sum_with_nil",
     [__min] = "xvar.min",
+
+    [__add_with_nil] = "?+",
 }
 
 --xvar traceback
