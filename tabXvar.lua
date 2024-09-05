@@ -1,7 +1,8 @@
 
 --author cs
+--email 04nycs@gmail.com
 --
---
+--https://github.com/ThinEureka/xvar
 --created on Apri 10, 2024
 --
 
@@ -117,23 +118,31 @@ tabXvar.xBind = _({
         end
     end,
 
+    initXvarToViewMap = function(c)
+        if (c.xvarToViewMap) then
+            return
+        end
+        c.xvarToViewMap = {}
+        for index, xvarToView in ipairs(c.xvarToView) do
+            c.xvarToViewMap[xvarToView[1]] = index
+        end
+    end,
+
     removeXvar = function(c, x)
         local callBackKey = c.callBackKeys[x]
         if (not callBackKey) then
             return
         end
         c.callBackKeys[x] = nil
-        for index, xvarToView in pairs(c.xvarToView) do
-            if (xvarToView[1] == x) then
-                table.remove(c.xvarToView, index)
-                break
-            end
+        c:initXvarToViewMap()
+        local index = c.xvarToViewMap[x]
+        if (index) then
+            table.remove(c.xvarToView, index)
+            c.xvarToViewMap = nil
+            c:initXvarToViewMap()
         end
         xvar.removeDirtyCallback(x, callBackKey)
-        if (updateFunctionIsInLateUpdate()) then
-        else
-            c.dirtyMap[x] = nil
-        end
+        c.dirtyMap[x] = nil
     end,
 
     addXvar = function(c, x, view)
@@ -143,19 +152,17 @@ tabXvar.xBind = _({
             end
         end
 
-        local replace = false
-        for index, xvarToView in pairs(c.xvarToView) do
-            if (xvarToView[1] == x) then
-                xvarToView[2] = view
-                replace = true
-                break
-            end
-        end
-        if (not replace) then
-            local callBackKeys = xvar.addDirtyCallback(x, c.dirtyCallback)
-            c.callBackKeys[x] = callBackKeys
+        c:initXvarToViewMap()
+        local index = c.xvarToViewMap[x]
+        if (index) then
+            c.xvarToView[index][2] = view
+        else
+            local callBackKey = xvar.addDirtyCallback(x, c.dirtyCallback)
+            c.callBackKeys[x] = callBackKey
             table.insert(c.xvarToView, {x, view})
+            c.xvarToViewMap[x] = #c.xvarToView
         end
+        --不能放dirty里面修改，因为有可能就是dirymap里面触发的，导致直接被还原
         if (updateFunctionIsInLateUpdate()) then
             c:updateView(x, view)
         else
@@ -170,6 +177,7 @@ tabXvar.xBind = _({
         c:removeAllCallBack()
         c:stop("u1")
         c.xvarToView = xvarToView
+        c.xvarToViewMap = nil
         c:start("t1")
     end,
 

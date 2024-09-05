@@ -1,6 +1,7 @@
 --author cs
+--04nycs@gmail.com
 --
---
+--https://github.com/ThinEureka/xvar
 --created on Apri 10, 2024 
 --
 local xvar = {}
