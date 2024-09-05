@@ -397,7 +397,7 @@ local __sum = function(op1)
     return sum
 end
 
-local __sum_with_nil = function(op1)
+local __safe_sum = function(op1)
     if op1 == nil or op1 == xvar_err_nil then
         return 0
     end
@@ -1160,7 +1160,7 @@ xvar.x_ge = function(x1, x2)
 end
 xvar[">="] = xvar.x_ge
 
-local __add_with_nil = function(op1, op2)
+local __safe_add = function(op1, op2)
     if op1 == nil or op1 == xvar_err_nil then
         if op2 == nil or op2 == xvar_err_nil then
             return 0
@@ -1175,11 +1175,11 @@ local __add_with_nil = function(op1, op2)
     return op1 + op2
 end
 
-xvar.x_add_with_nil = function (x1, x2)
-    return xvar_op2(__add_with_nil, x1, x2)
+xvar.x_safe_add = function (x1, x2)
+    return xvar_op2(__safe_add, x1, x2)
 end
 
-xvar["?+"] = xvar.x_add_with_nil
+xvar["?+"] = xvar.x_safe_add
 
 
 xvar.x_filter = function(x1, x2)
@@ -1208,8 +1208,8 @@ xvar.x_sum = function(x1)
     return xvar_op1(__sum, x1)
 end
 
-xvar.x_sum_with_nil = function(x1)
-    return xvar_op1(__sum_with_nil, x1)
+xvar.x_safe_sum = function(x1)
+    return xvar_op1(__safe_sum, x1)
 end
 
 xvar.x_pairs = function(x)
@@ -1414,7 +1414,7 @@ x_operators = {
     ["not"] = __lnot,
     ["#"] = xvar.x_len,
 
-    ["?+"] = xvar.x_add_with_nil
+    ["?+"] = xvar.x_safe_add
     -- ["-"] = meta_xvar["__sub"],
     -- ["*"] = meta_xvar["__mul"],
     -- ["/"] = meta_xvar["__div"],
@@ -1559,10 +1559,10 @@ g_xvarOpNames = {
     [__indexof] = "xvar.indexof",
 
     [__sum] = "xvar.sum",
-    [__sum_with_nil] = "xvar.sum_with_nil",
+    [__safe_sum] = "xvar.safe_sum",
     [__min] = "xvar.min",
 
-    [__add_with_nil] = "?+",
+    [__safe_add] = "?+",
 }
 
 --xvar traceback
