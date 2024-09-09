@@ -97,6 +97,8 @@ local __xArrayPool = __xArrayPool
 
 setmetatable(xvar_volatile, meta_volatile)
 
+local pcall_xvar_validate = nil
+
 
 local builtin_binary_ops = {
     --builit in binary
@@ -424,7 +426,7 @@ local xvar_addSink = nil
 local xvar_removeSink = nil
 local xvar_removeFromSources = nil
 local xvar_validate = nil
-local pcall_xvar_validate = nil
+-- local pcall_xvar_validate = nil
 
 --public:
 local xvar_isDirty = nil
@@ -1081,10 +1083,8 @@ __lor  = function(op1, op2)
 end
 
 __lxor  = function(op1, op2)
-    if op1 == xvar_err_nil or op2 == xvar_err_nil then
-        return xvar_err_nil
-    end
-    return (op1 and not op2) or (not op1 and op2)
+    return (xvar.is_false(op1) and not xvar.is_false(op2)) or 
+        (not xvar.is_false(op1) and xvar.is_false(op2))
 end
 
 __lnot  = function(op1)
@@ -1467,6 +1467,10 @@ end
 
 xvar.is_nil = function(v)
     return v == nil or v == xvar_err_nil
+end
+
+xvar.is_false = function(v)
+    return v == nil or v == xvar_err_nil or v == false
 end
 
 xvar.table_insert = function(x, ...)
