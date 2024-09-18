@@ -42,6 +42,7 @@ function xvarTest.testAll()
     xvarTest.testHighOrder()
     xvarTest.testSafeSum()
     xvarTest.testErrorCallback()
+    xvarTest.testX_form()
     print("xvar test passes")
 end
 
@@ -1099,6 +1100,24 @@ function xvarTest.testErrorCallback()
     end, item)
  
     testAssert(count() == nil, "error callback test 1")
+end
+
+function xvarTest.testX_form()
+    local x1 = xvar.f0(1)
+    local x2 = xvar.f0(2)
+    local x3 = xvar.f0(3)
+
+    local y = xvar.x_form(x1, x2, x3) >> function(x1, x2, x3)
+        return x1 + x2 + x3
+    end
+
+    print("y:", y())
+    testAssert(y() == 6, "x form test 1.1")
+
+    xvar.reset(x1, 3)
+    print("y:", y())
+    testAssert(y() == 8, "x form test 1.2")
+
 end
 
 -- function xvarTest.testReset()

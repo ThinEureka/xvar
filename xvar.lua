@@ -1527,7 +1527,19 @@ xvar.table_copy = function(x, t)
     end
 end
 
+local meta_xform = {
+    __shr = function(form, f)
+        return xvar.fn(f, table.unpack(form))
+    end,
+}
+
 xvar.on_error = on_error
+
+xvar.x_form = function(...)
+    local form = {...}
+    setmetatable(form, meta_xform)
+    return form
+end
 
 g_xvarOpNames = {
     [builtin_binary_ops.__add] = "+",
