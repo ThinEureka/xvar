@@ -75,13 +75,7 @@ local meta_err_nil = {
 
 setmetatable(xvar_err_nil, meta_err_nil)
 
-local xvar_volatile = {}
-
-local meta_volatile = {
-    __eq = function(op1, op2)
-        return false
-    end
-}
+local xvar_volatile = 0
 
 local x_operators = nil
 local __land = nil
@@ -94,8 +88,6 @@ if __xArrayPool == nil then
 end
 
 local __xArrayPool = __xArrayPool
-
-setmetatable(xvar_volatile, meta_volatile)
 
 local pcall_xvar_validate = nil
 
@@ -1054,7 +1046,10 @@ end
 
 xvar.err_nil = xvar_err_nil
 
-xvar.volatile = xvar_volatile
+xvar.volatile = function()
+    xvar_volatile = xvar_volatile + 1
+    return xvar_volatile
+end
 
 --type interface
 xvar.is_xvar = function(x)
