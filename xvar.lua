@@ -804,31 +804,41 @@ xvar_reset = function(x, v)
     xvar_removeFromSources(x)
 
     local xop = nil
+    local vIsXvar = true
     if type(v) ~= "table" then
-        xop = 0
+        vIsXvar = false
     else
         xop = rawget(v, "__xop")
         if xop == nil then
-            xop = 0
+            vIsXvar = false
         end
     end
 
-    if xop == 0 then
+    if not vIsXvar then
         -- rawset(x, "__xop", 0)
         rawset(x, "__xvalue", v)
         rawset(x, "__op_xs", nil)
         rawset(x, "__xf", nil)
+
+        if not rawget(x, "__xdirty") then
+            xvar_setDirty(x)
+        end
     else
         rawset(x, "__xop", xop)
         rawset(x, "__xf", rawget(v, "__xf"))
-        rawset(x, "__op_xs", rawget(v, "__op_xs"))
-        rawset(x, "__xsinks", rawget(v, "__xsinks"))
-        rawset(x, "__xvalue", rawget(v, "__xvalue"))
+        local op_xs = rawget(v, "__op_xs")
+        for _, op_x in ipairs(op_xs) do
+            xvar_addSink(op_x, x)
+        end
+        rawset(x, "__op_xs", op_xs)
+        -- rawset(x, "__xsinks", rawget(v, "__xsinks"))
+        rawset(x, "__xvalue", nil)
+
+        if not rawget(x, "__xdirty") then
+            xvar_setDirty(x)
+        end
     end
 
-    if not rawget(x, "__xdirty") then
-        xvar_setDirty(x)
-    end
     if (g_xvarDebug) then
         xvar_collectDebugMsg(x)
     end
