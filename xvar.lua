@@ -827,8 +827,10 @@ xvar_reset = function(x, v)
         rawset(x, "__xop", xop)
         rawset(x, "__xf", rawget(v, "__xf"))
         local op_xs = rawget(v, "__op_xs")
-        for _, op_x in ipairs(op_xs) do
-            xvar_addSink(op_x, x)
+        if op_xs ~= nil then
+            for _, op_x in ipairs(op_xs) do
+                xvar_addSink(op_x, x)
+            end
         end
         rawset(x, "__op_xs", op_xs)
         -- rawset(x, "__xsinks", rawget(v, "__xsinks"))
