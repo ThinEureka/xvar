@@ -589,9 +589,14 @@ tabXvar.xAliveMap = _({
 
 tabXvar.xInertia = _({
     s1 = function(c, x, delay)
-        c.inertiaX = xvar.f0(x())
+        c.nextValue = x()
+        c.inertiaX = xvar.f0(c.nextValue)
         c:call(tabXvar.xWatch(x, function(v)
-            c.newValue = v
+            if c.nextValue == v then
+                return
+            end
+
+            c.nextValue = v
             if delay ~= nil then
                 if not c:hasSub("u0") then
                     c:call(g_t.delay(delay), "u0")
@@ -603,7 +608,7 @@ tabXvar.xInertia = _({
     end,
 
     u1 = function(c)
-        xvar.setValue(c.inertiaX, c.newValue)
+        xvar.setValue(c.inertiaX, c.nextValue)
     end,
 
     x = function(c)
