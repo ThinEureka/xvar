@@ -97,7 +97,8 @@ tabXvar.xBind = _({
 
     --private:
     updateView = function(c, x, view)
-        if (c.unLinkMap[x]) then
+        local unlinkCount = c.unLinkMap[x]
+        if (unlinkCount and unlinkCount > 0) then
             return
         end
         local value = x()
@@ -108,6 +109,22 @@ tabXvar.xBind = _({
             local setData = view.setData
             if setData ~= nil then
                 xvar.pcall(setData, x, view, value, x)
+            end
+        end
+    end,
+
+    updateViewByValue = function(c, x, v, view)
+        if c:isQuitting() then
+            return
+        end
+
+        if type(view) == "function" then
+            xvar.pcall(view, x, v, x)
+
+        elseif type(view) == "table" then
+            local setData = view.setData
+            if setData ~= nil then
+                xvar.pcall(setData, x, view, v, x)
             end
         end
     end,
@@ -182,16 +199,37 @@ tabXvar.xBind = _({
     end,
 
     tabUnLinkXvar = _({
-        s1 = function(c, x)
+        s1 = function(c, x, value)
             c.x = x
+            c.value = value
             local xvarTab = c:_("xvarTab")
-            xvarTab.unLinkMap[x] = true
+            local unlinkCount = xvarTab.unLinkMap[x]
+            if (unlinkCount) then
+                xvarTab.unLinkMap[x] = unlinkCount + 1
+            else
+                xvarTab.unLinkMap[x] = 1
+            end
         end,
         final = function(c)
             local xvarTab = c:_("xvarTab")
-            xvarTab.unLinkMap[c.x] = false
-            local view = xvarTab.xvarToView[c.x]
-            if (view) then
+
+            local unlinkCount = xvarTab.unLinkMap[c.x]
+            unlinkCount = unlinkCount - 1
+            xvarTab.unLinkMap[c.x] = unlinkCount
+            if (unlinkCount < 0) then
+                printError("unlink error unlinkCount less 0")
+            end
+            xvarTab:initXvarToViewMap()
+            local viewIndex = xvarTab.xvarToViewMap[c.x]
+            if (not viewIndex) then
+                return
+            end
+            local xvarToView = xvarTab.xvarToView[viewIndex]
+            if (not xvarToView) then
+                return
+            end
+            local view = xvarToView[2]
+            if (unlinkCount <= 0) then
                 if (updateFunctionIsInLateUpdate()) then
                     xvarTab:updateView(c.x, view)
                 else
@@ -200,13 +238,15 @@ tabXvar.xBind = _({
                         xvarTab:start("u1")
                     end
                 end
+            elseif (c.value) then
+                xvarTab:updateViewByValue(c.x, c.value, view)
             end
         end,
         event = g_t.empty_event,
     }),
 
-    unLinkXvar = function(c, x)
-        return c:call(c.tabUnLinkXvar(x), "tabUnLinkXvar"):tabProxy(nil, true)
+    unLinkXvar = function(c, x, value)
+        return c:call(c.tabUnLinkXvar(x, value), "tabUnLinkXvar"):tabProxy(nil, true)
     end,
 
     event = g_t.empty_event,
@@ -334,6 +374,7 @@ tabXvar.xWatch = _({
     end,
 })
 
+
 tabXvar.xStat = _({
     s1 = function(c, list_x, statF, x1, x2, x3)
         local x2k = {}
@@ -423,7 +464,7 @@ tabXvar.xStat = _({
         end
 
         for x, k in pairs(item2k) do
-            if not c.contains(list, x) then
+            if not list or not c.contains(list, x) then
                 xvar.removeDirtyCallback(x, k)
             end
         end
@@ -544,6 +585,30 @@ tabXvar.xAliveMap = _({
         c.targetToKey[target] = key
         target.p:registerLifeTimeListener(target.__name, c)
     end,
+})
+
+tabXvar.xInertia = _({
+    s1 = function(c, x, delay)
+        c.inertiaX = xvar.f0(x())
+        c:call(tabXvar.xWatch(x, function(v)
+            c.newValue = v
+            if delay ~= nil then
+                if not c:hasSub("u0") then
+                    c:call(g_t.delay(delay), "u0")
+                end
+            else
+                c:start("u1")
+            end
+        end), "watch")
+    end,
+
+    u1 = function(c)
+        xvar.setValue(c.inertiaX, c.newValue)
+    end,
+
+    x = function(c)
+        return c.inertiaX
+    end
 })
 
 return tabXvar
