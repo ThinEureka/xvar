@@ -836,6 +836,8 @@ xvar_reset = function(x, v)
         -- rawset(x, "__xsinks", rawget(v, "__xsinks"))
         rawset(x, "__xvalue", nil)
 
+        rawset(x,"__xstructue", rawget(v, "__xstructue"))
+
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
         end
@@ -1234,6 +1236,10 @@ end
 
 xvar.x_A_or_B = function (cond_x, A, B)
     return xvar_opn(__A_or_B, cond_x, A, B)
+end
+
+xvar.x_identity = function(x1)
+    return xvar.f1(function(x) return x end, x1)
 end
 
 local __min = function(structure, ops)
