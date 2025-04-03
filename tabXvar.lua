@@ -10,10 +10,9 @@ local tabXvar = {}
 local xvar = require("util.xvar")
 local tabMachine = require("tabMachine.tabMachine")
 
---setXvarName default is true
 tabXvar.xBind = _({
-    s1 = function(c, xvarToView, setXvarName)
-        c.xvarToView = xvarToView
+    s1 = function(c, xvarToViewList, setXvarName)
+        c.xvarToViewList = xvarToViewList
         if setXvarName == nil then
             setXvarName = true
         end
@@ -22,67 +21,59 @@ tabXvar.xBind = _({
             if c:isQuitting() then
                 return
             end
-            c.dirtyMap[x] = true
+            for callBackKey, xvarToView in pairs(c.callBackKeys) do
+                if (x == xvarToView[1]) then
+                    c.dirtyMap[callBackKey] = callBackKey
+                end
+            end
             if c:getSub("u1") == nil then
                 c:start("u1")
             end
         end
-        c:start("t1")
     end,
-
-    inner = {
-        xvarTab = function(c)
-            return c
-        end,
-    },
-
-    final = function(c)
-        c:removeAllCallBack()
-    end,
-
-    t1 = function(c)
+    s2 = function(c)
         c:stopAllSubs("tabUnLinkXvar")
         c.unLinkMap = {}
         c.dirtyMap = {}
         c.callBackKeys = {}
-        for index, xvarToView in pairs(c.xvarToView) do
-            if not c:isQuitting() then
-                local x = xvarToView[1]
-                c.dirtyMap[x] = true
-                if c.setXvarName then
-                    if xvar.getName(x) == nil then
-                        xvar.setName(x, c:getPath() .. "->xbind.".. index)
-                    end
-                end
-                local callBackKeys = xvar.addDirtyCallback(x, c.dirtyCallback)
-                c.callBackKeys[x] = callBackKeys
-                if c:isQuitting() then
-                    xvar.removeDirtyCallback(x, callBackKeys)
-                    break
+        for index, xvarToView in pairs(c.xvarToViewList) do
+            if c:isQuitting() then
+                return
+            end
+            local x = xvarToView[1]
+            if c.setXvarName then
+                if xvar.getName(x) == nil then
+                    xvar.setName(x, c:getPath() .. "->xbind.".. index)
                 end
             end
+            local callBackKey = xvar.addDirtyCallback(x, c.dirtyCallback)
+            if c:isQuitting() then
+                xvar.removeDirtyCallback(x, callBackKey)
+                return
+            end
+            c.dirtyMap[callBackKey] = callBackKey
+            c.callBackKeys[callBackKey] = xvarToView
         end
         if c:getSub("u1") == nil then
             c:start("u1")
         end
     end,
-
     u1 = function(c)
         c.updateCount = 5
         if (updateFunctionIsInLateUpdate()) then
             c:u1_update(0)
         end
     end,
-
     u1_update = function(c)
-        for _, xvarToView in pairs(c.xvarToView) do
-            local x = xvarToView[1]
-            if (c.dirtyMap[x]) then
+        for callBackKey, state in pairs(c.dirtyMap) do
+            if (state) then
+                local xvarToView = c.callBackKeys[callBackKey]
                 local view = xvarToView[2]
                 if (view) then
+                    local x = xvarToView[1]
                     c:updateView(x, view)
                 end
-                c.dirtyMap[x] = nil
+                c.dirtyMap[callBackKey] = nil
             end
         end
         c.updateCount = c.updateCount - 1
@@ -90,29 +81,30 @@ tabXvar.xBind = _({
             c:stop("u1")
         end
     end,
-
-    --override in s1
     u1_updateInterval = nil,
     u1_updateTimerMgr = g_t.updateTimerMgr_late,
-
-    --private:
+    inner = {
+        xvarTab = function(c)
+            return c
+        end,
+    },
+    final = function(c)
+        c:removeAllCallBack()
+    end,
+    removeAllCallBack = function(c)
+        for callBackKey, xvarToView in pairs(c.callBackKeys) do
+            local x = xvarToView[1]
+            xvar.removeDirtyCallback(x, callBackKey)
+        end
+    end,
     updateView = function(c, x, view)
         local unlinkCount = c.unLinkMap[x]
         if (unlinkCount and unlinkCount > 0) then
             return
         end
         local value = x()
-        if type(view) == "function" then
-            xvar.pcall(view, x, value, x)
-
-        elseif type(view) == "table" then
-            local setData = view.setData
-            if setData ~= nil then
-                xvar.pcall(setData, x, view, value, x)
-            end
-        end
+        c:updateViewByValue(x, value, view)
     end,
-
     updateViewByValue = function(c, x, v, view)
         if c:isQuitting() then
             return
@@ -128,76 +120,48 @@ tabXvar.xBind = _({
             end
         end
     end,
-
-    removeAllCallBack = function(c)
-        for x, key in pairs(c.callBackKeys) do
-            xvar.removeDirtyCallback(x, key)
-        end
-    end,
-
-    initXvarToViewMap = function(c)
-        if (c.xvarToViewMap) then
-            return
-        end
-        c.xvarToViewMap = {}
-        for index, xvarToView in ipairs(c.xvarToView) do
-            c.xvarToViewMap[xvarToView[1]] = index
-        end
-    end,
-
     removeXvar = function(c, x)
-        local callBackKey = c.callBackKeys[x]
-        if (not callBackKey) then
-            return
+        local removeList = {}
+        for callBackKey, xvarToView in pairs(c.callBackKeys) do
+            if (xvarToView[1] == x) then
+                table.insert(removeList, callBackKey)
+                xvar.removeDirtyCallback(x, callBackKey)
+            end
         end
-        c.callBackKeys[x] = nil
-        c:initXvarToViewMap()
-        local index = c.xvarToViewMap[x]
-        if (index) then
-            table.remove(c.xvarToView, index)
-            c.xvarToViewMap = nil
-            c:initXvarToViewMap()
+        for i = #removeList, 1, -1 do
+            local callBackKey = removeList[i]
+            c.callBackKeys[callBackKey] = nil
+            c.dirtyMap[callBackKey] = nil
         end
-        xvar.removeDirtyCallback(x, callBackKey)
-        c.dirtyMap[x] = nil
     end,
-
     addXvar = function(c, x, view)
         if c.setXvarName then
             if xvar.getName(x) == nil then
                 xvar.setName(x, c:getPath() .. "->newlyAdded")
             end
         end
-
-        c:initXvarToViewMap()
-        local index = c.xvarToViewMap[x]
-        if (index) then
-            c.xvarToView[index][2] = view
-        else
-            local callBackKey = xvar.addDirtyCallback(x, c.dirtyCallback)
-            c.callBackKeys[x] = callBackKey
-            table.insert(c.xvarToView, {x, view})
-            c.xvarToViewMap[x] = #c.xvarToView
+        local callBackKey = xvar.addDirtyCallback(x, c.dirtyCallback)
+        if c:isQuitting() then
+            xvar.removeDirtyCallback(x, callBackKey)
+            return
         end
+        c.callBackKeys[callBackKey] = {x, view}
         --不能放dirty里面修改，因为有可能就是dirymap里面触发的，导致直接被还原
         if (updateFunctionIsInLateUpdate()) then
             c:updateView(x, view)
         else
-            c.dirtyMap[x] = true
+            c.dirtyMap[callBackKey] = callBackKey
             if c:getSub("u1") == nil then
                 c:start("u1")
             end
         end
     end,
-
-    refreshXvars = function(c, xvarToView)
+    refreshXvars = function(c, xvarToViewList)
         c:removeAllCallBack()
         c:stop("u1")
-        c.xvarToView = xvarToView
-        c.xvarToViewMap = nil
+        c.xvarToViewList = xvarToViewList
         c:start("t1")
     end,
-
     tabUnLinkXvar = _({
         s1 = function(c, x, value)
             c.x = x
@@ -219,27 +183,26 @@ tabXvar.xBind = _({
             if (unlinkCount < 0) then
                 printError("unlink error unlinkCount less 0")
             end
-            xvarTab:initXvarToViewMap()
-            local viewIndex = xvarTab.xvarToViewMap[c.x]
-            if (not viewIndex) then
-                return
-            end
-            local xvarToView = xvarTab.xvarToView[viewIndex]
-            if (not xvarToView) then
-                return
-            end
-            local view = xvarToView[2]
-            if (unlinkCount <= 0) then
-                if (updateFunctionIsInLateUpdate()) then
-                    xvarTab:updateView(c.x, view)
-                else
-                    xvarTab.dirtyMap[c.x] = true
-                    if xvarTab:getSub("u1") == nil then
-                        xvarTab:start("u1")
+
+            for callBackKey, xvarToView in pairs(xvarTab.callBackKeys) do
+                if (xvarToView[1] == c.x) then
+                    if (c:isQuitting()) then
+                        return
+                    end
+                    local view = xvarToView[2]
+                    if (unlinkCount <= 0) then
+                        if (updateFunctionIsInLateUpdate()) then
+                            xvarTab:updateView(c.x, view)
+                        else
+                            xvarTab.dirtyMap[callBackKey] = callBackKey
+                            if xvarTab:getSub("u1") == nil then
+                                xvarTab:start("u1")
+                            end
+                        end
+                    elseif (c.value) then
+                        xvarTab:updateViewByValue(c.x, c.value, view)
                     end
                 end
-            elseif (c.value) then
-                xvarTab:updateViewByValue(c.x, c.value, view)
             end
         end,
         event = g_t.empty_event,
@@ -614,6 +577,32 @@ tabXvar.xInertia = _({
     x = function(c)
         return c.inertiaX
     end
+})
+
+tabXvar.xMaxUnlocked = _({
+    s1 = function(c, getUnlock_x)
+        c.getUnlock_x = getUnlock_x
+        c.unlock_x = xvar.f0(0)
+    end,
+
+    s2 = function(c)
+        local index = c.unlock_x() + 1
+        local con_x = c.getUnlock_x(index)
+        while con_x ~= nil and con_x() do
+            index = index + 1
+            con_x = c.getUnlock_x(index)
+        end
+        if con_x ~= nil then
+            xvar.setValue(c.unlock_x, index - 1)
+            c:call(tabXvar.xWait(con_x), "s1")
+        else
+            xvar.setValue(c.unlock_x, index)
+        end
+    end,
+    x = function(c)
+        return c.unlock_x
+    end,
+    event = g_t.empty_event,
 })
 
 return tabXvar
