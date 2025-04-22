@@ -17,6 +17,7 @@ tabXvar.xBind = _({
             setXvarName = true
         end
         c.setXvarName = setXvarName
+        c.init = false
         c.dirtyCallback = function(x)
             if c:isQuitting() then
                 return
@@ -26,7 +27,7 @@ tabXvar.xBind = _({
                     c.dirtyMap[callBackKey] = callBackKey
                 end
             end
-            if c:getSub("u1") == nil then
+            if c.init and c:getSub("u1") == nil then
                 c:start("u1")
             end
         end
@@ -54,6 +55,7 @@ tabXvar.xBind = _({
             c.dirtyMap[callBackKey] = callBackKey
             c.callBackKeys[callBackKey] = xvarToView
         end
+        c.init = true
         if c:getSub("u1") == nil then
             c:start("u1")
         end
