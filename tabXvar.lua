@@ -11,13 +11,14 @@ local xvar = require("util.xvar")
 local tabMachine = require("tabMachine.tabMachine")
 
 tabXvar.xBind = _({
-    s1 = function(c, xvarToViewList, setXvarName)
+    s1 = function(c, xvarToViewList, setXvarName, needSort)
         c.xvarToViewList = xvarToViewList
         if setXvarName == nil then
             setXvarName = true
         end
         c.setXvarName = setXvarName
         c.init = false
+        c.needSort = needSort
         c.dirtyCallback = function(x)
             if c:isQuitting() then
                 return
@@ -67,8 +68,17 @@ tabXvar.xBind = _({
         end
     end,
     u1_update = function(c)
-        for callBackKey, state in pairs(c.dirtyMap) do
-            if (state) then
+        if (c.needSort) then
+            local dirtyList = {}
+            for callBackKey, state in pairs(c.dirtyMap) do
+                if (state) then
+                    table.insert(dirtyList, callBackKey)
+                end
+            end
+            table.sort(dirtyList, function(a, b)
+                return a < b
+            end)
+            for _, callBackKey in pairs(dirtyList) do
                 local xvarToView = c.callBackKeys[callBackKey]
                 local view = xvarToView[2]
                 if (view) then
@@ -76,6 +86,18 @@ tabXvar.xBind = _({
                     c:updateView(x, view)
                 end
                 c.dirtyMap[callBackKey] = nil
+            end
+        else
+            for callBackKey, state in pairs(c.dirtyMap) do
+                if (state) then
+                    local xvarToView = c.callBackKeys[callBackKey]
+                    local view = xvarToView[2]
+                    if (view) then
+                        local x = xvarToView[1]
+                        c:updateView(x, view)
+                    end
+                    c.dirtyMap[callBackKey] = nil
+                end
             end
         end
         c.updateCount = c.updateCount - 1
@@ -186,11 +208,11 @@ tabXvar.xBind = _({
                 printError("unlink error unlinkCount less 0")
             end
 
+            if (xvarTab:isQuitting()) then
+                return
+            end
             for callBackKey, xvarToView in pairs(xvarTab.callBackKeys) do
                 if (xvarToView[1] == c.x) then
-                    if (c:isQuitting()) then
-                        return
-                    end
                     local view = xvarToView[2]
                     if (unlinkCount <= 0) then
                         if (updateFunctionIsInLateUpdate()) then

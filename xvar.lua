@@ -753,7 +753,7 @@ xvar_validate = function(x)
                 local op = rawget(op_x, "__xvalue")
                 ops[index] = op
             end
-            value = f(table.unpack(ops))
+            value = f(table.unpack(ops, 1, #op_xs))
         end
     elseif xop == -1 then
         value = f()
