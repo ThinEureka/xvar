@@ -61,7 +61,7 @@ xvar.pcall = function(f, x, ...)
     end
 end
 
-local xvar_err_nil = {}
+local xvar_err_nil = { DEBUG_NAME = "xvar_err_nil" }
 
 local meta_err_nil = {
     __index = function(t, key)
@@ -379,33 +379,7 @@ local __indexof = function(op1, op2)
     end
 end
 
-local __sum = function(op1)
-    if op1 == nil or op1 == xvar_err_nil then
-        return xvar_err_nil
-    end
 
-    local sum = 0
-    for _, v in pairs(op1) do
-        sum = sum + v
-    end
-
-    return sum
-end
-
-local __safe_sum = function(op1)
-    if op1 == nil or op1 == xvar_err_nil then
-        return 0
-    end
-
-    local sum = 0
-    for _, v in pairs(op1) do
-        if v ~= nil and v ~= xvar_err_nil then
-            sum = sum + v
-        end
-    end
-
-    return sum
-end
 
 local __x_index = nil
 local meta_xvar = nil
@@ -422,6 +396,8 @@ local xvar_validate = nil
 
 --public:
 local xvar_isDirty = nil
+local xvar_isVolatile = nil
+local xvar_setVolatile = nil
 local xvar_reset = nil
 local xvar_addDirtyCallback = nil
 local xvar_removeDirtyCallback = nil
@@ -436,6 +412,8 @@ local xvar_op2 = nil
 local xvar_opn = nil
 local xvar_opx = nil
 local xvar_ops = nil
+local xvar_fns = nil
+local __table = nil
 
 xvar_op0 = function(c)
     local x = {}
@@ -699,6 +677,14 @@ xvar_isDirty = function(x)
     return rawget(x, "__xdirty")
 end
 
+xvar_isVolatile = function(x)
+    return rawget(x, "__xvolatile")
+end
+
+xvar_setVolatile = function(x)
+    return rawset(x, "__xvolatile", true)
+end
+
 xvar_getCollectDebugMsg = function(x)
     return rawget(x, "__xdebugmsgs")
 end
@@ -834,7 +820,8 @@ xvar_reset = function(x, v)
         end
         rawset(x, "__op_xs", op_xs)
         -- rawset(x, "__xsinks", rawget(v, "__xsinks"))
-        rawset(x, "__xvalue", nil)
+
+        rawset(x, "__xvalue", rawget(v, "__xvalue"))
 
         rawset(x,"__xstructue", rawget(v, "__xstructue"))
 
@@ -929,6 +916,7 @@ meta_xvar = {
             return
         end
         rawset(xvalue, k, v)
+        rawset(x, "__xvolatile", true)
         xvar_setDirty(x, k)
         if (g_xvarDebug) then
             xvar_collectDebugMsg(x)
@@ -1039,6 +1027,28 @@ xvar.fx = xvar_opx
 
 xvar.fs = xvar_ops
 
+xvar.fns = function(f, ...)
+	local structure = {}
+	local opIndex = 1
+	local op_xs = {}
+	local num = select("#", ...)
+	for i = 1, num do
+		local x = select(i, ...)
+		local e = {}
+		if xvar.is_xvar(x) then
+			e.opIndex = opIndex
+			opIndex = opIndex + 1
+			table.insert(op_xs, x)
+		else
+			e.constValue = x
+		end
+
+		table.insert(structure, e)
+	end
+
+	return xvar_ops(f, structure, op_xs)
+end
+
 local meta_ff = {
     __call = function(ff, ...)
         return xvar.fn(ff.__f, ...)
@@ -1071,6 +1081,14 @@ xvar.is_xvar = function(x)
         return false
     end
     return rawget(x, "__xop") ~= nil
+end
+
+xvar.is_xtable = function(x)
+    if (type(x) ~= "table") then
+        return false
+    end
+
+	return rawget(x, "__xf") == __table
 end
 
 
@@ -1171,17 +1189,22 @@ end
 xvar[">="] = xvar.x_ge
 
 local __safe_add = function(op1, op2)
-    if op1 == nil or op1 == xvar_err_nil then
-        if op2 == nil or op2 == xvar_err_nil then
-            return 0
-        end
-        return op2
-    else
-        if op2 == nil or op2 == xvar_err_nil then
-            return op1
-        end
-        return op1 + op2
-    end
+    if op1 == nil or op1 == xvar_err_nil or op1 == false then
+		op1 = 0
+	end
+
+	if op1 == true then
+		op1 = 1
+	end
+		
+    if op2 == nil or op2 == xvar_err_nil or op2 == false then
+		op2 = 0
+	end
+
+	if op2 == true then
+		op2 = 1
+	end
+
     return op1 + op2
 end
 
@@ -1214,12 +1237,111 @@ xvar.x_indexof = function(x1, x2)
     return xvar_op2(__indexof, x1, x2)
 end
 
-xvar.x_sum = function(x1)
-    return xvar_op1(__sum, x1)
+xvar.x_vp = function(f, f_array, ...)
+	local num = select("#", ...)
+
+	if num == 1 then
+		local x1 = select(1, ...)
+		local t = type(x1)
+		if t == "table" then
+			if rawget(x1, "__xop") ~= nil then
+				return xvar_op1(f_array, x1)
+			else
+				return xvar.fns(f, table.unpack(x1))
+			end
+		end
+	end
+
+	return xvar.fns(f, ...)
 end
 
-xvar.x_safe_sum = function(x1)
-    return xvar_op1(__safe_sum, x1)
+local __sum = nil
+local __sum_array = nil
+xvar.x_sum = function(...)
+	return xvar.x_vp(__sum, __sum_array, ...)
+end
+
+__sum_array = function(op1)
+	if op1 == nil or op1 == xvar_err_nil then
+		return xvar_err_nil
+	end
+
+    local sum = 0
+    for _, v in pairs(op1) do
+		sum = sum + v
+    end
+
+    return sum
+end
+
+__sum = function(structure, ops)
+    local sum = 0
+    for _, e in ipairs(structure) do
+        local v
+        local opIndex = e.opIndex
+        if opIndex ~= nil then
+            v = ops[opIndex]
+        else
+            v = e.constValue
+        end
+
+		sum = sum + v
+    end
+
+    return sum
+end
+
+local __safe_sum_array = nil
+local __safe_sum = nil
+
+xvar.x_safe_sum = function(...)
+	return xvar.x_vp(__safe_sum, __safe_sum_array, ...)
+end
+
+__safe_sum_array = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return 0
+    end
+
+    local sum = 0
+    for _, v in pairs(op1) do
+		if v == nil or v == xvar_err_nil or v == false then
+			v = 0
+		end
+
+		if v == true then
+			v = 1
+		end
+
+		sum = sum + v
+    end
+
+    return sum
+end
+
+__safe_sum = function(structure, ops)
+    local sum = 0
+    for _, e in ipairs(structure) do
+        local v
+        local opIndex = e.opIndex
+        if opIndex ~= nil then
+            v = ops[opIndex]
+        else
+            v = e.constValue
+        end
+
+		if v == nil or v == xvar_err_nil or v == false then
+			v = 0
+		end
+
+		if v == true then
+			v = 1
+		end
+
+		sum = sum + v
+    end
+
+    return sum
 end
 
 xvar.x_pairs = function(x)
@@ -1242,7 +1364,41 @@ xvar.x_identity = function(x1)
     return xvar.f1(function(x) return x end, x1)
 end
 
-local __min = function(structure, ops)
+local __count = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return 0
+    end
+	local count = 0
+	for _, v in pairs(op1) do
+		count = count + 1
+	end
+	return count
+end
+
+xvar.x_count = function(x)
+	return xvar.fn(__count, x)
+end
+
+local __isEmpty = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return true
+    end
+
+	return next(op1) == nil
+end
+
+xvar.x_isEmpty = function(x)
+	return xvar.fn(__isEmpty, x)
+end
+
+local __min = nil
+local __min_array = nil
+
+xvar.x_min = function(...)
+	return xvar.x_vp(__min, __min_array, ...)
+end
+
+__min = function(structure, ops)
     local min = xvar_err_nil
     for _, e in ipairs(structure) do
         local v
@@ -1265,29 +1421,33 @@ local __min = function(structure, ops)
     return min
 end
 
-xvar.x_min = function(...)
-    local structure = {}
-    local opIndex = 1
-    local op_xs = {}
-    local num = select("#", ...)
-    for i = 1, num do
-        local x = select(i, ...)
-        local e = {}
-        if xvar.is_xvar(x) then
-            e.opIndex = opIndex
-            opIndex = opIndex + 1
-            table.insert(op_xs, x)
-        else
-            e.constValue = x
-        end
-
-        table.insert(structure, e)
+__min_array = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return xvar_err_nil
     end
 
-    return xvar_ops(__min, structure, op_xs)
+    local min = xvar_err_nil
+    for _, v in ipairs(op1) do
+        if v ~= nil and v ~= xvar_err_nil then
+            if min == xvar_err_nil then
+                min = v
+            elseif v < min then
+                min = v
+            end
+        end
+    end
+
+    return min
 end
 
-local __max = function(structure, ops)
+local __max = nil
+local __max_array = nil
+
+xvar.x_max = function(...)
+	return xvar.x_vp(__max, __max_array, ...)
+end
+
+__max = function(structure, ops)
     local max = xvar_err_nil
     for _, e in ipairs(structure) do
         local v
@@ -1310,29 +1470,26 @@ local __max = function(structure, ops)
     return max
 end
 
-xvar.x_max = function(...)
-    local structure = {}
-    local opIndex = 1
-    local op_xs = {}
-    local num = select("#", ...)
-    for i = 1, num do
-        local x = select(i, ...)
-        local e = {}
-        if xvar.is_xvar(x) then
-            e.opIndex = opIndex
-            opIndex = opIndex + 1
-            table.insert(op_xs, x)
-        else
-            e.constValue = x
-        end
-
-        table.insert(structure, e)
+__max_array = function(op1)
+    if op1 == nil or op1 == xvar_err_nil then
+        return xvar_err_nil
     end
 
-    return xvar_ops(__max, structure, op_xs)
+    local max = xvar_err_nil
+    for _, v in ipairs(op1) do
+        if v ~= nil and v ~= xvar_err_nil then
+            if max == xvar_err_nil then
+                max = v
+            elseif v > max then
+                max = v
+            end
+        end
+    end
+
+    return max
 end
 
-local __table = function(structure, ops)
+__table = function(structure, ops)
     local result = {}
     for index, e in ipairs(structure) do
         local k, v
@@ -1387,6 +1544,54 @@ end
 
 xvar.x_len = function(x1)
     return #x1
+end
+
+local function __select(...)
+    local num = select("#", ...)
+    for i = 1, num do 
+        local v = select(i, ...)
+        if v and v ~= xvar_err_nil  then
+            return i
+        end
+    end
+    return num + 1
+end
+
+xvar.x_select = function(...)
+    return xvar.fn(__select, ...)
+end
+
+local function __index(index, ...)
+	if index == true then
+		index = 1
+	elseif index == false or index == nil then
+		index = 2
+	end
+    return select(index, ...)
+end
+
+xvar.x_index = function(index_x, ...)
+    return xvar.fn(__index, index_x, ...)
+end
+
+local function __indexof(t,item)
+	if t == xvar_err_nil or t == nil then
+		return nil 
+	end
+
+	if item == xvar_err_nil or item == nil then
+		return nil
+	end
+
+	for index, v in ipairs(t) do
+		if v == item then
+			return index
+		end
+	end
+end
+
+xvar.x_indexof = function(t_x, item_x)
+    return xvar.fn(__indexof, t_x, item_x)
 end
 
 x_operators = {
@@ -1449,6 +1654,8 @@ xvar.getName = function(x, name)
 end
 
 xvar.isDirty = xvar_isDirty
+xvar.isVolatile = xvar_isVolatile
+xvar.setVolatile = xvar_setVolatile
 -- don't use this function unless you're developing fundamental code for xvar.
 xvar.setDirty = xvar_setDirty
 xvar.reset = xvar_reset
@@ -1468,6 +1675,10 @@ xvar.verifyDirty = function(x, verifyDirty)
 end
 
 xvar.setValue = function(x, value)
+    local xop = rawget(x, "__xop")
+    if xop ~= 0 then
+        assert(false)
+    end
     local xvalue = rawget(x, "__xvalue")
     if (value == xvalue) then
         return
@@ -1490,6 +1701,7 @@ xvar.table_insert = function(x, ...)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
         table.insert(xvalue, ...)
+        rawset(x, "__xvolatile", true)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x, #xvalue)
         end
@@ -1502,6 +1714,7 @@ end
 xvar.table_remove = function(x, pos)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
+        rawset(x, "__xvolatile", true)
         table.remove(xvalue, pos)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
@@ -1515,6 +1728,7 @@ end
 xvar.table_sort = function(x, comp)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
+        rawset(x, "__xvolatile", true)
         table.sort(xvalue, comp)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
@@ -1528,6 +1742,7 @@ end
 xvar.table_copy = function(x, t)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
+        rawset(x, "__xvolatile", true)
         for k, v in pairs(t) do
             rawset(xvalue, k, v)
         end
