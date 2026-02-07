@@ -27,15 +27,10 @@ tabXvar.xBind = _{
             if callBackKey then
                 c.dirtyMap[callBackKey] = callBackKey
             end
-            if c.init and c:getSub("u1") == nil then
-                c:start("u1")
-            else
-                c.updateCount = 5
-            end
+            c:submitFrameJob()
         end
     end,
     s2 = function(c)
-        c.init = false
         c:stopAllSubs("tabUnLinkXvar")
         c.unLinkMap = {}
         c.lastValue = {}
@@ -48,8 +43,8 @@ tabXvar.xBind = _{
             end
             local x = xvarToView[1]
             if c.setXvarName then
-                if xvar.getName(x) == nil then
-                    xvar.setName(x, c:getPath() .. "->xbind.".. index)
+                if xvar.getNickName(x) == nil then
+                    xvar.setNickName(x, c:getPath() .. "->xbind.".. index)
                 end
             end
             local callBackKey = xvar.addDirtyCallback(x, c.dirtyCallback)
@@ -65,20 +60,10 @@ tabXvar.xBind = _{
             c.callBackKeys[callBackKey] = xvarToView
             c.lastValue[callBackKey] = volatile
         end
-        c.init = true
-        if c:getSub("u1") == nil then
-            c:start("u1")
-        else
-            c.updateCount = 5
-        end
+        c:submitFrameJob()
     end,
-    u1 = function(c)
-        c.updateCount = 5
-        if (updateFunctionIsInLateUpdate()) then
-            c:u1_update(0)
-        end
-    end,
-    u1_update = function(c)
+
+    frameJob = function(c)
         if (c.needSort) then
             local dirtyList = {}
             for callBackKey, state in pairs(c.dirtyMap) do
@@ -113,13 +98,8 @@ tabXvar.xBind = _{
                 end
             end
         end
-        c.updateCount = c.updateCount - 1
-        if (c.updateCount < 0) then
-            c:stop("u1")
-        end
     end,
-    u1_updateInterval = nil,
-    u1_updateTimerMgr = g_t.updateTimerMgr_late,
+
     inner = {
         xvarTab = function(c)
             return c
@@ -177,8 +157,8 @@ tabXvar.xBind = _{
                 return
             end
             if c.setXvarName then
-                if xvar.getName(x) == nil then
-                    xvar.setName(x, c:getPath() .. "->newlyAdded")
+                if xvar.getNickName(x) == nil then
+                    xvar.setNickName(x, c:getPath() .. "->newlyAdded")
                 end
             end
             c.xvarMap[x] = callBackKey
@@ -196,16 +176,11 @@ tabXvar.xBind = _{
             c:updateView(x, view, isVolatile, callBackKey)
         else
             c.dirtyMap[callBackKey] = callBackKey
-            if c:getSub("u1") == nil then
-                c:start("u1")
-            else
-                c.updateCount = 5
-            end
+            c:submitFrameJob()
         end
     end,
     refreshXvars = function(c, xvarToViewList)
         c:removeAllCallBack()
-        c:stop("u1")
         c.xvarToViewList = xvarToViewList
         c:start("s2")
     end,
@@ -245,9 +220,7 @@ tabXvar.xBind = _{
                             xvarTab:updateView(c.x, view, isVolatile, callBackKey)
                         else
                             xvarTab.dirtyMap[callBackKey] = callBackKey
-                            if xvarTab:getSub("u1") == nil then
-                                xvarTab:start("u1")
-                            end
+                            c:submitFrameJob()
                         end
                     elseif (c.value) then
                         xvarTab:updateViewByValue(c.x, c.value, view)
@@ -273,8 +246,8 @@ tabXvar.xWait = _{
         end
 
         if setXvarName then
-            if xvar.getName(x) == nil then
-                xvar.setName(x, c:getPath() .. "->xWait")
+            if xvar.getNickName(x) == nil then
+                xvar.setNickName(x, c:getPath() .. "->xWait")
             end
         end
 
@@ -330,8 +303,8 @@ tabXvar.xWatchModification = _{
         end
 
         if setXvarName then
-            if xvar.getName(x) == nil then
-                xvar.setName(x, c:getPath() .. "->xWatchModification")
+            if xvar.getNickName(x) == nil then
+                xvar.setNickName(x, c:getPath() .. "->xWatchModification")
             end
         end
         c.v = x()
@@ -345,7 +318,7 @@ tabXvar.xWatchModification = _{
         end
         c.key = key
     end,
-    
+
     updateView = function(c, x, callBack)
         if c:isQuitting() then
             return
@@ -380,8 +353,8 @@ tabXvar.xWatch = _{
         end
 
         if setXvarName then
-            if xvar.getName(x) == nil then
-                xvar.setName(x, c:getPath() .. "->xWatch")
+            if xvar.getNickName(x) == nil then
+                xvar.setNickName(x, c:getPath() .. "->xWatch")
             end
         end
 
@@ -429,7 +402,7 @@ tabXvar.xStat = _{
         c.stat_x = xvar.fx(function()
             return statF(list_x and list_x(), x1 and x1(), x2 and x2(), x3 and x3())
         end)
-        xvar.setName(c.stat_x, c:getPath() .. "->xStat")
+        xvar.setNickName(c.stat_x, c:getPath() .. "->xStat")
 
         if x1 ~= nil or x2 ~= nil or x3 ~= nil then
             c.x1 = x1
@@ -443,7 +416,7 @@ tabXvar.xStat = _{
                 xvar.setDirty(c.stat_x)
             end
 
-            if x1 ~= nil then 
+            if x1 ~= nil then
                 x2k[x1] = xvar.addDirtyCallback(x1, c.xDirtyCallback)
             end
 
@@ -535,110 +508,110 @@ tabXvar.xStat = _{
 }
 
 tabXvar.xSeq = _{
-	s1 = function(c, target_x, count)
-		c._x = xvar.f0(nil)
-		c._target_x = target_x
+    s1 = function(c, target_x, count)
+        c._x = xvar.f0(nil)
+        c._target_x = target_x
 
-		c._next = {}
-		c._curTargetValue = nil
-		c._count = count
+        c._next = {}
+        c._curTargetValue = nil
+        c._count = count
 
-		local key = xvar.addDirtyCallback(target_x, function(x)
-			if c:isQuitting() then
-				return
-			end
+        local key = xvar.addDirtyCallback(target_x, function(x)
+            if c:isQuitting() then
+                return
+            end
 
-			local target = x()
-			if target ~= c._curTargetValue and target ~= xvar.err_nil and target ~= nil then
-				table.insert(c._next, target)
-				c._curTargetValue = target
-				if #c._next == c._count then
-					xvar.setValue(c._x, c._next)
-					c._next = {}
-				end
-			end
-		end)
+            local target = x()
+            if target ~= c._curTargetValue and target ~= xvar.err_nil and target ~= nil then
+                table.insert(c._next, target)
+                c._curTargetValue = target
+                if #c._next == c._count then
+                    xvar.setValue(c._x, c._next)
+                    c._next = {}
+                end
+            end
+        end)
 
-		if not c:isQuitting() then
-			c.key = key
-		else
-			xvar.removeDirtyCallback(c._target_x, key)
-		end
-	end,
+        if not c:isQuitting() then
+            c.key = key
+        else
+            xvar.removeDirtyCallback(c._target_x, key)
+        end
+    end,
 
-	event = g_t.empty_event,
+    event = g_t.empty_event,
 
-	final = function(c)
+    final = function(c)
         if c.key then
             xvar.removeDirtyCallback(c._target_x, c.key)
         end
-	end,
+    end,
 
-	x = function(c)
-		return c._x
-	end
+    x = function(c)
+        return c._x
+    end
 }
 
 tabXvar.xInState = _{
-	s1 = function(c, state_x, targetState, duration)
-		c._state_x = state_x
-		c._targetState = targetState
-		c._duration = duration
+    s1 = function(c, state_x, targetState, duration)
+        c._state_x = state_x
+        c._targetState = targetState
+        c._duration = duration
 
-		if state_x() == targetState then
-			if duration == nil then
-				c:output(targetState)
-				c:stop()
-				return
-			else
-				c:start("t1")
-			end
-		end
+        if state_x() == targetState then
+            if duration == nil then
+                c:output(targetState)
+                c:stop()
+                return
+            else
+                c:start("t1")
+            end
+        end
 
-		local key = xvar.addDirtyCallback(state_x, function(x)
-			local state = x()
-			if c:isQuitting() then
-				return
-			end
+        local key = xvar.addDirtyCallback(state_x, function(x)
+            local state = x()
+            if c:isQuitting() then
+                return
+            end
 
-			if state == targetState then
-				if duration == nil or duration == 0 then
-					c:output(targetState)
-					c:stop()
-					return
-				end
+            if state == targetState then
+                if duration == nil or duration == 0 then
+                    c:output(targetState)
+                    c:stop()
+                    return
+                end
 
-				if not c:hasSub("t2") then
-					c:start("t1")
-				end
-			else
-				c:abort("t2")
-			end
-		end)
+                if not c:hasSub("t2") then
+                    c:start("t1")
+                end
+            else
+                c:abort("t2")
+            end
+        end)
 
-		if not c:isQuitting() then
-			c.key = key
-		else
-			xvar.removeDirtyCallback(c._state_x, key)
-		end
-	end,
+        if not c:isQuitting() then
+            c.key = key
+        else
+            xvar.removeDirtyCallback(c._state_x, key)
+        end
+    end,
 
-	t1 = function(c)
-		c:call(g_t.delay(c._duration), "t2")
-	end,
+    t1 = function(c)
+        c:call(g_t.delay(c._duration), "t2")
+    end,
 
-	t3 = function(c)
-		c:output(c._state_x())
-		c:stop()
-	end,
+    t3 = function(c)
+        c:output(c._state_x())
+        c:stop()
+    end,
 
-	event = g_t.empty_event,
+    event = g_t.empty_event,
 
-	final = function(c)
+    final = function(c)
         if c.key then
             xvar.removeDirtyCallback(c._state_x, c.key)
         end
-	end,
+    end,
 
 }
 
@@ -771,6 +744,41 @@ tabXvar.xInertia = _{
     end
 }
 
+
+tabXvar.xInertiaTable = _{
+    s1 = function(c, x, delay, condition_x)
+        c.nextValue = x()
+        c.condition_x = condition_x
+        if type(c.nextValue) ~= "table" then
+            assert(false, "x must be a table")
+            c:stop()
+            return
+        end
+        c.inertiaX = xvar.f0(c.nextValue)
+        c:call(tabXvar.xWatch(x, function(v)
+            if delay ~= nil then
+                if not c:hasSub("u0") then
+                    c:call(g_t.delay(delay), "u0")
+                end
+            else
+                c:start("u1")
+            end
+        end), "watch")
+    end,
+
+    u1 = function(c)
+        if not c.condition_x or c.condition_x() then
+            xvar.setDirty(c.inertiaX)
+        elseif c.condition_x then
+            c:call(tabXvar.xWait(c.condition_x), "u0")
+        end
+    end,
+
+    x = function(c)
+        return c.inertiaX
+    end
+}
+
 tabXvar.xMaxUnlocked = _{
     s1 = function(c, getUnlock_x)
         c.getUnlock_x = getUnlock_x
@@ -811,7 +819,7 @@ tabXvar.xCheck = _{
     s2 = function(c)
         c:s2_update()
     end,
-    s2_update = function(c) 
+    s2_update = function(c)
         local value = c.callback()
         if c.value_x() ~= value then
             xvar.setValue(c.value_x, value)
@@ -855,7 +863,7 @@ tabXvar.xStayOnce = _{
         c.enter_x = enter_x
         c.stay_x = stay_x
         c.enterStay_x = enter_x & stay_x
-        c.out_x = ~enter_x & ~stay_x
+        c.out_x = ~c.enter_x & ~c.stay_x
         c.takeEffect_x = xvar.f0(false)
     end,
     s2 = function(c)
@@ -863,29 +871,42 @@ tabXvar.xStayOnce = _{
     end,
     s2_2 = function(c)
         xvar.setValue(c.takeEffect_x, false)
-        c:call(tabXvar.xWait(~c.enter_x), "s3")
+        c:call(tabXvar.xWait(c.out_x), "s3")
     end,
     s4 = function(c)
+        xvar.setValue(c.takeEffect_x, false)
         c:call(tabXvar.xWait(c.enterStay_x), "s5")
     end,
     s6 = function(c)
+        c:call(tabXvar.xWait(~c.stay_x), "s2_1") -- 不用out_x因为移动了就破坏状态了
         xvar.setValue(c.takeEffect_x, true)
-        c:call(tabXvar.xWait(c.out_x), "s1")
     end,
     x = function(c)
         return c.takeEffect_x
     end,
+    restart = function(c)
+        if c.takeEffect_x() then
+            c:stop("s2_1")
+        end
+    end,
+    event = g_t.empty_event,
 }
 
 tabXvar.xStay = _{
-    s1 = function(c, enter_x, stay_x)
+    s1 = function(c, enter_x, stay_x, needOut)
         c.enter_x = enter_x
         c.stay_x = stay_x
         c.enterStay_x = enter_x & stay_x
+        c.needOut = needOut
+        c.out_x = ~c.stay_x
         c.takeEffect_x = xvar.f0(false)
     end,
     s2 = function(c)
-        c:call(tabXvar.xWait(~c.enter_x), "s3")
+        if c.needOut then
+            c:call(tabXvar.xWait(c.out_x), "s3")
+        else
+            c:start("s4")
+        end
     end,
     s4 = function(c)
         xvar.setValue(c.takeEffect_x, false)
@@ -893,7 +914,35 @@ tabXvar.xStay = _{
     end,
     s6 = function(c)
         xvar.setValue(c.takeEffect_x, true)
-        c:call(tabXvar.xWait(~c.enterStay_x), "s3")
+        c:call(tabXvar.xWait(c.out_x), "s3")
+    end,
+    x = function(c)
+        return c.takeEffect_x
+    end,
+}
+
+tabXvar.xEnter = _{
+    s1 = function(c, enter_x, stay_x, needOut)
+        c.enter_x = enter_x
+        c.stay_x = stay_x
+        c.needOut = needOut
+        c.takeEffect_x = xvar.f0(false)
+    end,
+    s2 = function(c)
+        if c.needOut then
+            local out_x = ~c.stay_x
+            c:call(tabXvar.xWait(out_x), "s3")
+        else
+            c:start("s4")
+        end
+    end,
+    s4 = function(c)
+        xvar.setValue(c.takeEffect_x, false)
+        c:call(tabXvar.xWait(c.enter_x), "s5")
+    end,
+    s6 = function(c)
+        xvar.setValue(c.takeEffect_x, true)
+        c:call(tabXvar.xWait(~c.enter_x), "s3")
     end,
     x = function(c)
         return c.takeEffect_x
@@ -933,7 +982,7 @@ tabXvar.xSelectState = _{
     s2 = function(c)
         local state = c.state_x()
         local tab = c.tabs[state]
-        c:call(tab(c.p1, c.p2, c.p3, c.p4) >> "state" >> "p1" >> "p2" >> "p3" >> "p4", "s3")
+        c:call(tab(c.p1, c.p2, c.p3, c.p4, c.p5) >> "state" >> "p1" >> "p2" >> "p3" >> "p4" >> "p5", "s3")
     end,
     s4 = function(c)
         c.state = c.state or c.initState

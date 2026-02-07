@@ -403,7 +403,14 @@ function xDataBase:_notifySelf_x(key, value, path)
     end
     local data_x = self.queryXvarPathMap[path]
     if (data_x) then
-        data_x[key] = value
+        local data = data_x()
+        if not data then
+            data = {}
+            data[key] = value
+            xvar.setValue(data_x, data)
+        else
+            data_x[key] = value
+        end
     end
 end
 

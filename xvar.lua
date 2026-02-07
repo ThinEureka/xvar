@@ -2,63 +2,75 @@
 --04nycs@gmail.com
 --
 --https://github.com/ThinEureka/xvar
---created on Apri 10, 2024 
+--created on Apri 10, 2024
 --
 local xvar = {}
 
 local rawget = rawget
 local rawset = rawset
+local table = table
+local table_insert = table.insert
+local table_remove = table.remove
+local setmetatable = setmetatable
+local xpcall = xpcall
+local type = type
+local pairs = pairs
+local ipairs = ipairs
+local select = select
 
 local __err_xs = {}
+local __numXs = 0
 -- g_allXars = {}
 local __x_trace = true
 
 -- this function assumes we're using tabMachine context stack
 local function on_error(error)
     local strArray = {}
-    local x = __err_xs[#__err_xs]
-    table.insert(strArray, error)
+    local x = __err_xs[__numXs]
+    table_insert(strArray, error)
     if x ~= nil then
-        local xvarMap = {}
-        local desc = xvar.getXvarDesc(x, xvarMap)
-        table.insert(strArray, xvar.descToStr(desc))
+        local desc = xvar.desc(x, true)
+        table_insert(strArray, desc)
     end
 
-    table.insert(strArray, "tabStack {")
+    table_insert(strArray, "tabStack {")
     for i = 1, g_getCurStackNum() do
         local context = __contextStack[i].context
         if context ~= nil then
-            table.insert(strArray, context:getDetailedPath())
+            table_insert(strArray, context:getDetailedPath())
         end
     end
-    table.insert(strArray, "}")
-    table.insert(strArray, debug.traceback("", 1))
+    table_insert(strArray, "}")
+    table_insert(strArray, debug.traceback("", 1))
     local strError = table.concat(strArray, "\n")
     printError(strError)
 
     if fabric and fabric.getInstance and fabric:getInstance() then
         fabric:getInstance():reportCustomException(strError)
     end
-
 end
 
 xvar.pcall = function(f, x, ...)
     local x_trace = __x_trace
-    --temporality diabled
-    x_trace = false
-    if x_trace then 
-        table.insert(__err_xs, x)
+    local numXs
+    if x_trace then
+        numXs = __numXs + 1
+        if numXs > #__err_xs then
+            table_insert(__err_xs, x)
+        else
+            __err_xs[numXs] = x
+        end
+        __numXs = numXs
     end
 
     local stat, result = xpcall(f, on_error, ...)
 
-    if x_trace then 
-        table.remove(__err_xs)
+    if x_trace then
+        __err_xs[numXs] = false --place holder
+        __numXs = numXs - 1
     end
 
-    if stat then
-        return result
-    end
+    return stat,result
 end
 
 local xvar_err_nil = { DEBUG_NAME = "xvar_err_nil" }
@@ -83,11 +95,12 @@ local __lor = nil
 local __lxor = nil
 local __lnot = nil
 
-if __xArrayPool == nil then
-    __xArrayPool = {}
+if __xCallbacks == nil then
+    __xCallbacks = {}
+    __xCallbackSize = 0
 end
 
-local __xArrayPool = __xArrayPool
+local __xCallbacks = __xCallbacks
 
 local pcall_xvar_validate = nil
 
@@ -150,7 +163,7 @@ local builtin_binary_ops = {
         end
         return op1 // op2
     end,
-    
+
 
     -- __band = function(op1, op2)
         -- if op1 == xvar_err_nil or op2 == xvar_err_nil then
@@ -415,18 +428,65 @@ local xvar_ops = nil
 local xvar_fns = nil
 local __table = nil
 
+local function setDebugInfo(x, fn, f, loc)
+    local opName = nil
+    local isBuiltInOp = false
+    if f ~= nil then
+        opName = g_xvarOpNames[f]
+        if opName ~= nil then
+            isBuiltInOp = true
+        end
+    end
+
+    if not isBuiltInOp then
+        if fn == nil then
+            local xop = rawget(x, "__xop")
+            if xop == 0 then
+                fn = "f0"
+            elseif xop == -1 then
+                fn = "fx"
+            elseif xop == -2 then
+                fn = "fs"
+            else
+                fn = "fn"
+            end
+        end
+        opName = fn
+    end
+
+    local file
+    local line
+
+    if loc ~= nil then
+        local info = debug.getinfo(1 + loc)
+        file = info.short_src
+        line = info.currentline
+    else
+        if f == nil then
+            file = "xvar.lua"
+            line = 0
+        else
+            local info = debug.getinfo(f)
+            file = info.short_src
+            line = info.linedefined
+        end
+    end
+
+    local xName = opName .. " " .. file .. ":" .. line
+
+    rawset(x, "__xname", xName)
+end
+
 xvar_op0 = function(c)
     local x = {}
     setmetatable(x, meta_xvar)
     rawset(x, "__xop", 0)
     rawset(x,"__xvalue", c)
 
-    if g_xvarDebug then
-        rawset(x, "__xname", debug.traceback("", 1):gsub("\n", "#"))
-    end
-
    -- rawset(x, "__xdirty", true)
-
+    if g_xvarDebug then
+        setDebugInfo(x, "f0", nil, 2)
+    end
 
     return x
 end
@@ -434,7 +494,7 @@ end
 xvar_opn = function(f, ...)
     local x = {}
     setmetatable(x, meta_xvar)
-    -- table.insert(g_allXars, x)
+    -- table_insert(g_allXars, x)
 
     local num = select("#", ...)
     rawset(x,"__xop", num)
@@ -450,32 +510,32 @@ xvar_opn = function(f, ...)
             op_x = p
             xvar_addSink(op_x, x)
         end
-        table.insert(op_xs, op_x)
+        table_insert(op_xs, op_x)
     end
     rawset(x,"__op_xs", op_xs)
 
     rawset(x, "__xdirty", true)
     if g_xvarDebug then
-        rawset(x, "__xname", debug.traceback("", 1):gsub("\n", "#"))
+        setDebugInfo(x, "fn", f, 2)
     end
 
     return x
 end
 
-xvar_op1 = xvar_opn 
-xvar_op2 = xvar_opn 
+xvar_op1 = xvar_opn
+xvar_op2 = xvar_opn
 
 xvar_opx = function(f)
     local x = {}
     rawset(x,"__xop", -1)
     setmetatable(x, meta_xvar)
-    -- table.insert(g_allXars, x)
+    -- table_insert(g_allXars, x)
 
     rawset(x,"__xf", f)
 
     rawset(x, "__xdirty", true)
     if g_xvarDebug then
-        rawset(x, "__xname", debug.traceback("", 1):gsub("\n", "#"))
+        setDebugInfo(x, "fx", f, 2)
     end
 
     return x
@@ -484,7 +544,7 @@ end
 xvar_ops = function(f, structure, op_xs)
     local x = {}
     setmetatable(x, meta_xvar)
-    -- table.insert(g_allXars, x)
+    -- table_insert(g_allXars, x)
 
     rawset(x,"__xop", -2)
     rawset(x,"__xf", f)
@@ -499,7 +559,7 @@ xvar_ops = function(f, structure, op_xs)
 
     rawset(x, "__xdirty", true)
     if g_xvarDebug then
-        rawset(x, "__xname", debug.traceback("", 1):gsub("\n", "#"))
+        setDebugInfo(x, "fs", f, 2)
     end
 
     return x
@@ -521,7 +581,7 @@ xvar_collectDebugMsg = function(x, msg)
             msgs = {}
             rawset(x, "__xdebugmsgs", msgs)
         end
-        table.insert(msgs, msg)
+        table_insert(msgs, msg)
     end
     local sinks = rawget(x, "__xsinks")
     if sinks ~= nil then
@@ -532,42 +592,45 @@ xvar_collectDebugMsg = function(x, msg)
 end
 
 xvar_setDirty = function(x, location)
-    local xArray = table.remove(__xArrayPool)
-    if xArray == nil then
-        xArray = {} 
+    local xCallbacks = __xCallbacks
+    local beginSize = __xCallbackSize
+    xvar_collectDirty(x, location)
+    local endSize = __xCallbackSize
+
+    --TODO:  a global enableSorting option can be added
+    for i = beginSize + 2, endSize do
+        local xCallback1 = xCallbacks[i]
+        local j = i - 1
+
+        while j >= beginSize + 1 and xCallbacks[j].callbackId > xCallback1.callbackId do
+            xCallbacks[j + 1] = xCallbacks[j]
+            j = j - 1
+        end
+        xCallbacks[j + 1] = xCallback1
     end
 
-    local callbackArray = table.remove(__xArrayPool)
-    if callbackArray == nil then
-        callbackArray = {} 
-    end
-
-    xvar_collectDirty(x, xArray, callbackArray, location)
-
-    for index = 1, #xArray do
+    for index = beginSize + 1, endSize do
         -- callbackArray[index](xArray[index])
-        local x = xArray[index] 
-        if g_xvarDebug then
-            table.insert(__err_xs, x)
-        end
-        xpcall(callbackArray[index], on_error, x)
-        if g_xvarDebug then
-            table.remove(__err_xs)
-        end
+        local xCallback = xCallbacks[index]
+        local x = xCallback.x
+        local callback = xCallback.callback
+
+        xCallback.x = false
+        xCallback.callback = false
+
+        --if g_xvarDebug then
+        --    --table_insert(__err_xs, x)
+        --end
+        xpcall(callback, on_error, x)
+        --if g_xvarDebug then
+        --    --table_remove(__err_xs)
+        --end
     end
 
-    while next(xArray) do
-        table.remove(xArray)
-    end
-    table.insert(__xArrayPool, xArray)
-
-    while next(callbackArray) do
-        table.remove(callbackArray)
-    end
-    table.insert(__xArrayPool, callbackArray)
+    __xCallbackSize = beginSize
 end
 
-xvar_collectDirty = function(x, xArray, callbackArray, location, excludeX)
+xvar_collectDirty = function(x, location, excludeX)
     if not excludeX then
         rawset(x, "__xdirty", true)
         rawset(x, "__xdirty_location", location)
@@ -575,9 +638,16 @@ xvar_collectDirty = function(x, xArray, callbackArray, location, excludeX)
 
     local callbacks = rawget(x, "__xdirtycallbacks")
     if callbacks ~= nil then
-        for index, callback in pairs(callbacks) do
-            table.insert(xArray, x)
-            table.insert(callbackArray, callback)
+        for callbackId, callback in pairs(callbacks) do
+            local newSize = __xCallbackSize + 1
+            __xCallbackSize = newSize
+            if newSize > #__xCallbacks then
+                table_insert(__xCallbacks, {})
+            end
+            local xCallback = __xCallbacks[newSize]
+            xCallback.x = x
+            xCallback.callback = callback
+            xCallback.callbackId = callbackId
         end
     end
 
@@ -586,15 +656,16 @@ xvar_collectDirty = function(x, xArray, callbackArray, location, excludeX)
         for sink, _ in pairs(sinks) do
             if not rawget(sink, "__xdirty") then
                 if location == nil then
-                    xvar_collectDirty(sink, xArray, callbackArray, nil)
+                    xvar_collectDirty(sink, nil)
                 else
                     local xSourceLocation = rawget(sink, "__xsourcelocation")
                     if xSourceLocation == nil then
-                        xvar_collectDirty(sink, xArray, callbackArray, nil)
+                        xvar_collectDirty(sink, nil)
                     else
                         local miss = false
                         local isValue = false
                         local op_xs = rawget(sink, "__op_xs")
+                        local x_i
                         for i, j in pairs(xSourceLocation) do
                             if i == 0 then
                                 x_i = rawget(sink, "__xvalue")
@@ -619,9 +690,9 @@ xvar_collectDirty = function(x, xArray, callbackArray, location, excludeX)
 
                         if not miss then
                             if isValue then
-                                xvar_collectDirty(sink, xArray, callbackArray, location, true)
+                                xvar_collectDirty(sink, location, true)
                             else
-                                xvar_collectDirty(sink, xArray, callbackArray, nil)
+                                xvar_collectDirty(sink, nil)
                             end
                         end
                     end
@@ -690,22 +761,25 @@ xvar_getCollectDebugMsg = function(x)
 end
 
 pcall_xvar_validate = function(x)
-    if g_xvarDebug then
-        table.insert(__err_xs, x)
-    end
-    local stat = xpcall(xvar_validate, on_error, x)
-    if g_xvarDebug then
-        table.remove(__err_xs)
-    end
+    --if g_xvarDebug then
+    --    --table_insert(__err_xs, x)
+    --end
+    --local stat = xpcall(xvar_validate, on_error, x)
+    local stat, result = xvar.pcall(xvar_validate, x, x)
+    --if g_xvarDebug then
+    --    --table_remove(__err_xs)
+    --end
     if not stat then
         rawset(x, "__xvalue", xvar_err_nil)
         rawset(x, "__xdirty", false)
     end
+
+    return result
 end
 
 --private:
 xvar_validate = function(x)
-    local xop = rawget(x, "__xop") 
+    local xop = rawget(x, "__xop")
     if xop == 0 then
         rawset(x, "__xdirty", false)
         return
@@ -830,9 +904,9 @@ xvar_reset = function(x, v)
         end
     end
 
-    if (g_xvarDebug) then
-        xvar_collectDebugMsg(x)
-    end
+    --if (g_xvarDebug) then
+    --    --xvar_collectDebugMsg(x)
+    --end
 end
 local xvar_call_back_id = 0
 xvar_addDirtyCallback = function(x, callback)
@@ -846,13 +920,13 @@ xvar_addDirtyCallback = function(x, callback)
     callbacks[callbackId] = callback
 
     if rawget(x, "__xdirty") then
-        if g_xvarDebug then
-            table.insert(__err_xs, x)
-        end
+        --if g_xvarDebug then
+        --    --table_insert(__err_xs, x)
+        --end
         xpcall(callback, on_error, x)
-        if g_xvarDebug then
-            table.remove(__err_xs)
-        end
+        --if g_xvarDebug then
+        --    --table_remove(__err_xs)
+        --end
     end
 
     return callbackId
@@ -918,9 +992,9 @@ meta_xvar = {
         rawset(xvalue, k, v)
         rawset(x, "__xvolatile", true)
         xvar_setDirty(x, k)
-        if (g_xvarDebug) then
-            xvar_collectDebugMsg(x)
-        end
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
     end,
 
     --get value
@@ -947,7 +1021,7 @@ meta_xvar = {
             if op ~= nil then
                 return op(x, array[2])
             elseif len == 1 then
-                if opStr:byte(1) == 46 then 
+                if opStr:byte(1) == 46 then
                     op = x_operators["."]
                     return op(x, opStr:sub(2))
                 end
@@ -981,7 +1055,7 @@ meta_xvar = {
     -- __le = function(op1, op2)
         -- error("Lua does not support overload compare operator to return none boolean value")
     -- end,
-    
+
     __band = function(op1, op2)
         return xvar_op2(__land, op1, op2)
     end,
@@ -1028,25 +1102,25 @@ xvar.fx = xvar_opx
 xvar.fs = xvar_ops
 
 xvar.fns = function(f, ...)
-	local structure = {}
-	local opIndex = 1
-	local op_xs = {}
-	local num = select("#", ...)
-	for i = 1, num do
-		local x = select(i, ...)
-		local e = {}
-		if xvar.is_xvar(x) then
-			e.opIndex = opIndex
-			opIndex = opIndex + 1
-			table.insert(op_xs, x)
-		else
-			e.constValue = x
-		end
+    local structure = {}
+    local opIndex = 1
+    local op_xs = {}
+    local num = select("#", ...)
+    for i = 1, num do
+        local x = select(i, ...)
+        local e = {}
+        if xvar.is_xvar(x) then
+            e.opIndex = opIndex
+            opIndex = opIndex + 1
+            table_insert(op_xs, x)
+        else
+            e.constValue = x
+        end
 
-		table.insert(structure, e)
-	end
+        table_insert(structure, e)
+    end
 
-	return xvar_ops(f, structure, op_xs)
+    return xvar_ops(f, structure, op_xs)
 end
 
 local meta_ff = {
@@ -1088,7 +1162,7 @@ xvar.is_xtable = function(x)
         return false
     end
 
-	return rawget(x, "__xf") == __table
+    return rawget(x, "__xf") == __table
 end
 
 
@@ -1110,7 +1184,7 @@ __lor  = function(op1, op2)
 end
 
 __lxor  = function(op1, op2)
-    return (xvar.is_false(op1) and not xvar.is_false(op2)) or 
+    return (xvar.is_false(op1) and not xvar.is_false(op2)) or
         (not xvar.is_false(op1) and xvar.is_false(op2))
 end
 
@@ -1190,20 +1264,20 @@ xvar[">="] = xvar.x_ge
 
 local __safe_add = function(op1, op2)
     if op1 == nil or op1 == xvar_err_nil or op1 == false then
-		op1 = 0
-	end
+        op1 = 0
+    end
 
-	if op1 == true then
-		op1 = 1
-	end
-		
+    if op1 == true then
+        op1 = 1
+    end
+
     if op2 == nil or op2 == xvar_err_nil or op2 == false then
-		op2 = 0
-	end
+        op2 = 0
+    end
 
-	if op2 == true then
-		op2 = 1
-	end
+    if op2 == true then
+        op2 = 1
+    end
 
     return op1 + op2
 end
@@ -1238,37 +1312,37 @@ xvar.x_indexof = function(x1, x2)
 end
 
 xvar.x_vp = function(f, f_array, ...)
-	local num = select("#", ...)
+    local num = select("#", ...)
 
-	if num == 1 then
-		local x1 = select(1, ...)
-		local t = type(x1)
-		if t == "table" then
-			if rawget(x1, "__xop") ~= nil then
-				return xvar_op1(f_array, x1)
-			else
-				return xvar.fns(f, table.unpack(x1))
-			end
-		end
-	end
+    if num == 1 then
+        local x1 = select(1, ...)
+        local t = type(x1)
+        if t == "table" then
+            if rawget(x1, "__xop") ~= nil then
+                return xvar_op1(f_array, x1)
+            else
+                return xvar.fns(f, table.unpack(x1))
+            end
+        end
+    end
 
-	return xvar.fns(f, ...)
+    return xvar.fns(f, ...)
 end
 
 local __sum = nil
 local __sum_array = nil
 xvar.x_sum = function(...)
-	return xvar.x_vp(__sum, __sum_array, ...)
+    return xvar.x_vp(__sum, __sum_array, ...)
 end
 
 __sum_array = function(op1)
-	if op1 == nil or op1 == xvar_err_nil then
-		return xvar_err_nil
-	end
+    if op1 == nil or op1 == xvar_err_nil then
+        return xvar_err_nil
+    end
 
     local sum = 0
     for _, v in pairs(op1) do
-		sum = sum + v
+        sum = sum + v
     end
 
     return sum
@@ -1285,7 +1359,7 @@ __sum = function(structure, ops)
             v = e.constValue
         end
 
-		sum = sum + v
+        sum = sum + v
     end
 
     return sum
@@ -1295,7 +1369,7 @@ local __safe_sum_array = nil
 local __safe_sum = nil
 
 xvar.x_safe_sum = function(...)
-	return xvar.x_vp(__safe_sum, __safe_sum_array, ...)
+    return xvar.x_vp(__safe_sum, __safe_sum_array, ...)
 end
 
 __safe_sum_array = function(op1)
@@ -1305,15 +1379,15 @@ __safe_sum_array = function(op1)
 
     local sum = 0
     for _, v in pairs(op1) do
-		if v == nil or v == xvar_err_nil or v == false then
-			v = 0
-		end
+        if v == nil or v == xvar_err_nil or v == false then
+            v = 0
+        end
 
-		if v == true then
-			v = 1
-		end
+        if v == true then
+            v = 1
+        end
 
-		sum = sum + v
+        sum = sum + v
     end
 
     return sum
@@ -1330,15 +1404,15 @@ __safe_sum = function(structure, ops)
             v = e.constValue
         end
 
-		if v == nil or v == xvar_err_nil or v == false then
-			v = 0
-		end
+        if v == nil or v == xvar_err_nil or v == false then
+            v = 0
+        end
 
-		if v == true then
-			v = 1
-		end
+        if v == true then
+            v = 1
+        end
 
-		sum = sum + v
+        sum = sum + v
     end
 
     return sum
@@ -1348,7 +1422,7 @@ xvar.x_pairs = function(x)
     return next, x, nil
 end
 
-local __A_or_B =  function(cond, a, b) 
+local __A_or_B =  function(cond, a, b)
     if cond and cond ~= xvar_err_nil then
         return a
     end
@@ -1368,15 +1442,15 @@ local __count = function(op1)
     if op1 == nil or op1 == xvar_err_nil then
         return 0
     end
-	local count = 0
-	for _, v in pairs(op1) do
-		count = count + 1
-	end
-	return count
+    local count = 0
+    for _, v in pairs(op1) do
+        count = count + 1
+    end
+    return count
 end
 
 xvar.x_count = function(x)
-	return xvar.fn(__count, x)
+    return xvar.fn(__count, x)
 end
 
 local __isEmpty = function(op1)
@@ -1384,18 +1458,18 @@ local __isEmpty = function(op1)
         return true
     end
 
-	return next(op1) == nil
+    return next(op1) == nil
 end
 
 xvar.x_isEmpty = function(x)
-	return xvar.fn(__isEmpty, x)
+    return xvar.fn(__isEmpty, x)
 end
 
 local __min = nil
 local __min_array = nil
 
 xvar.x_min = function(...)
-	return xvar.x_vp(__min, __min_array, ...)
+    return xvar.x_vp(__min, __min_array, ...)
 end
 
 __min = function(structure, ops)
@@ -1444,7 +1518,7 @@ local __max = nil
 local __max_array = nil
 
 xvar.x_max = function(...)
-	return xvar.x_vp(__max, __max_array, ...)
+    return xvar.x_vp(__max, __max_array, ...)
 end
 
 __max = function(structure, ops)
@@ -1524,19 +1598,19 @@ xvar.x_table = function(t)
        if xvar.is_xvar(k) then
            e.keyOpIndex = opIndex
            opIndex = opIndex + 1
-           table.insert(op_xs, k)
+           table_insert(op_xs, k)
        else
            e.constKey = k
        end
-       
+
        if xvar.is_xvar(v) then
            e.valueOpIndex = opIndex
            opIndex = opIndex + 1
-           table.insert(op_xs, v)
+           table_insert(op_xs, v)
        else
            e.constValue = v
        end
-       table.insert(structure, e)
+       table_insert(structure, e)
     end
 
     return xvar_ops(__table, structure, op_xs)
@@ -1548,7 +1622,7 @@ end
 
 local function __select(...)
     local num = select("#", ...)
-    for i = 1, num do 
+    for i = 1, num do
         local v = select(i, ...)
         if v and v ~= xvar_err_nil  then
             return i
@@ -1562,11 +1636,11 @@ xvar.x_select = function(...)
 end
 
 local function __index(index, ...)
-	if index == true then
-		index = 1
-	elseif index == false or index == nil then
-		index = 2
-	end
+    if index == true then
+        index = 1
+    elseif index == false or index == nil then
+        index = 2
+    end
     return select(index, ...)
 end
 
@@ -1575,19 +1649,19 @@ xvar.x_index = function(index_x, ...)
 end
 
 local function __indexof(t,item)
-	if t == xvar_err_nil or t == nil then
-		return nil 
-	end
+    if t == xvar_err_nil or t == nil then
+        return nil
+    end
 
-	if item == xvar_err_nil or item == nil then
-		return nil
-	end
+    if item == xvar_err_nil or item == nil then
+        return nil
+    end
 
-	for index, v in ipairs(t) do
-		if v == item then
-			return index
-		end
-	end
+    for index, v in ipairs(t) do
+        if v == item then
+            return index
+        end
+    end
 end
 
 xvar.x_indexof = function(t_x, item_x)
@@ -1645,12 +1719,12 @@ xvar.x_op = function(op1, operator, op2)
     return xop(op1, op2)
 end
 
-xvar.setName = function(x, name)
-    rawset(x, "__xname", name)
+xvar.setNickName = function(x, name)
+    rawset(x, "__xNickName", name)
 end
 
-xvar.getName = function(x, name)
-    rawget(x, "__xname")
+xvar.getNickName = function(x, name)
+    rawget(x, "__xNickName")
 end
 
 xvar.isDirty = xvar_isDirty
@@ -1700,14 +1774,14 @@ end
 xvar.table_insert = function(x, ...)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
-        table.insert(xvalue, ...)
+        table_insert(xvalue, ...)
         rawset(x, "__xvolatile", true)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x, #xvalue)
         end
-        if (g_xvarDebug) then
-            xvar_collectDebugMsg(x)
-        end
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
     end
 end
 
@@ -1715,13 +1789,30 @@ xvar.table_remove = function(x, pos)
     if rawget(x, "__xop") == 0 then
         local xvalue = rawget(x, "__xvalue")
         rawset(x, "__xvolatile", true)
-        table.remove(xvalue, pos)
+        local v = table_remove(xvalue, pos)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
         end
-        if (g_xvarDebug) then
-            xvar_collectDebugMsg(x)
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
+        return v
+    end
+end
+
+xvar.table_clear = function(x)
+    if rawget(x, "__xop") == 0 then
+        local xvalue = rawget(x, "__xvalue")
+        rawset(x, "__xvolatile", true)
+        for k in pairs(xvalue) do
+            xvalue[k] = nil
         end
+        if not rawget(x, "__xdirty") then
+            xvar_setDirty(x)
+        end
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
     end
 end
 
@@ -1733,9 +1824,9 @@ xvar.table_sort = function(x, comp)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
         end
-        if (g_xvarDebug) then
-            xvar_collectDebugMsg(x)
-        end
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
     end
 end
 
@@ -1749,9 +1840,9 @@ xvar.table_copy = function(x, t)
         if not rawget(x, "__xdirty") then
             xvar_setDirty(x)
         end
-        if (g_xvarDebug) then
-            xvar_collectDebugMsg(x)
-        end
+        --if (g_xvarDebug) then
+        --    --xvar_collectDebugMsg(x)
+        --end
     end
 end
 
@@ -1782,7 +1873,6 @@ g_xvarOpNames = {
     [builtin_binary_ops.__shl] = "<<",
     [builtin_binary_ops.__shr] = ">>",
 
-
     [builtin_unary_ops.__len] = "#",
     [builtin_unary_ops.__unm] = "-",
 
@@ -1796,139 +1886,187 @@ g_xvarOpNames = {
 
     [__gt] = ">",
     [__ge] = ">=",
-    
-    [__filter] = "xvar.filter",
-    [__sort] = "xvar.sort",
-    [__extend] = "xvar.extend",
-    [__find] = "xvar.find",
-    [__indexof] = "xvar.indexof",
 
-    [__sum] = "xvar.sum",
-    [__safe_sum] = "xvar.safe_sum",
-    [__min] = "xvar.min",
+    [__land] = "&",
+    [__lor] = "|",
+    [__lxor] = "~(xor)",
+    [__lnot] = "~(not)",
+
+    [__call] = "()",
+
+    [__filter] = "filter",
+    [__sort] = "sort",
+    [__extend] = "extend",
+    [__find] = "find",
+    [__indexof] = "indexof",
+    [__count] = "count",
+
+    [__sum] = "sum",
+    [__safe_sum] = "safe_sum",
+    [__min] = "min",
+    [__max] = "max",
+    [__table] = "x_table",
 
     [__safe_add] = "?+",
+    [__select] = "select",
+
+    [__A_or_B] = "A_or_B",
 }
 
---xvar traceback
-local __getValueDesc = nil
-local __getDesc = nil
-local __getXDesc = nil
-local __getFDesc = nil
+g_buildInBinaryOps = {}
+for k, v in pairs(builtin_binary_ops) do
+    local name = g_xvarOpNames[v]
+    g_buildInBinaryOps[name] = true
+end
 
-__getFormula = function(desc)
-    if type(desc) == "table" and desc.__isXDesc then
-        if desc.formula == nil then
-            return "*"
-        end
-        return desc.formula
+g_buildInBinaryOps["?+"] = true
+g_buildInBinaryOps["~"] = true
+g_buildInBinaryOps["<"] = true
+g_buildInBinaryOps["<="] = true
+g_buildInBinaryOps[">"] = true
+g_buildInBinaryOps[">="] = true
+g_buildInBinaryOps["&"] = true
+g_buildInBinaryOps["|"] = true
+
+xvar.desc = function(x, shortPath, fs, rs)
+    if rs == nil then
+        rs = "\n"
     end
-    return desc 
-end
 
-__getXDesc = function (x, xvarMap, upward)
-   local desc = xvarMap[x]
-   if desc ~= nil then
-       return desc
-   else
-      desc = {}
-   end
+    if fs == nil then
+        fs = ""
+    end
 
-   xvarMap[x] = desc
-
-   desc.__isXDesc = true
-
-   local name = rawget(x, "__xname") or "nil"
-   desc.xname = name
-
-   local xop = rawget(x, "__xop")
-   desc.xop = xop
-
-   local xvalue = rawget(x, "__xvalue") 
-   local valueDesc = __getDesc(xvalue, xvarMap, false)
-   desc.xvalue = valueDesc
-
-   local f = rawget(x, "__xf") 
-   desc.xf =  __getFDesc(f)
-
-   local op1 = rawget(x, "__op1") 
-   desc.op1 = __getDesc(op1, xvarMap, true)
-
-   local op2 = rawget(x, "__op2") 
-   desc.op2 =  __getDesc(op2, xvarMap, true)
-
-   if xop == 0 then
-       desc.formula = "f0(" ..__getFormula(valueDesc) ..")"
-   elseif xop == 1 then
-       desc.formula = desc.xf .. "(" .. __getFormula(desc.op1) .. ")"
-   elseif xop == 2 then
-       desc.formula = desc.xf .. "(" .. __getFormula(desc.op1)  .. "," .. __getFormula(desc.op2) .. ")"
-   elseif xop == -1 then
-       desc.formula = desc.xf .. "()"
-   else 
-       desc.formula = "*"
-   end
-
-   if not upward then
-       local xskins = rawget(x, "__xsinks")
-       if xskins ~= nil then
-           desc.xskins = {}
-
-           local count = 0
-           for sink, _ in pairs(xskins) do
-               count = count + 1
-               table.insert(desc.xskins, __getXDesc(sink, xvarMap, false))
-           end
-       end
-   else
-       desc.xskins = "#"
-   end
-
-   return desc
-end
-
-__getDesc = function(value, xvarMap, upward)
-   if value ~= nil and type(value) == "table" and rawget(value, "__xop") ~= nil then
-       return __getXDesc(value, xvarMap, upward)
-   else 
-       return  __getValueDesc(value)
-   end
-end
-
-
-__getValueDesc = function(v)
-    local desc = tostring(v)
+    local varNameGenerator = xvar.createVarNameGenerator()
+    local rootName = varNameGenerator(x)
+    local visitMap = {}
+    local node = xvar.desc_node(x, varNameGenerator, shortPath, visitMap)
+    local desc =  xvar.depthFirstDesc(node, fs, rs, "", "")
     return desc
 end
 
-__getFDesc = function(f)
-    if type(f) == "nil" then
-        return "nil"
+xvar.analyzeXname = function (input, shortPath)
+    -- Split on first space
+    local spacePos = input:find(" ")
+    local opName = input:sub(1, spacePos - 1)
+    local rest = input:sub(spacePos + 1)
+
+    -- Split on colon
+    local colonPos = rest:find(":")
+    local path = rest:sub(1, colonPos - 1)
+    local line = rest:sub(colonPos + 1)
+
+    -- Get base name (last part after / or \)
+    local baseName = path
+
+    if shortPath then
+        -- Find last directory separator
+        local lastSlash = path:find("/[^/]*$") or 0
+        local lastBackslash = path:find("\\[^\\]*$") or 0
+        local lastSep = math.max(lastSlash, lastBackslash)
+
+        if lastSep > 0 then
+            baseName = path:sub(lastSep + 1)
+        end
     end
 
-    local name = g_xvarOpNames[f]
-    if name ~= nil then
-        return name
+    -- Remove .lua extension
+    if baseName:sub(-4) == ".lua" then
+        baseName = baseName:sub(1, -5)
     end
 
-    local info = debug.getinfo(f)
-    local file  = info.source
-    local line = info.linedefined
-    return file .. " " .. line
+    return opName , baseName .. ":" .. line
 end
 
-xvar.getXvarDesc = __getXDesc
+xvar.desc_node = function(x, varNameGenerator, shortPath, visitMap)
+    local node = {}
+    visitMap[x] = true
+    node.value = rawget(x, "__xvalue")
+    local desc = varNameGenerator(x) .. " = "
+    local xname = rawget(x, "__xname")
+    local opName, location
+    if xname == nil then
+        setDebugInfo(x, nil, rawget(x, "__xf"))
+        xname = rawget(x, "__xname")
+    end
+    opName, location = xvar.analyzeXname(xname, shortPath)
+    local xop = rawget(x, "__xop")
+    local ops = rawget(x, "__op_xs")
+    local ops_count = ops and #ops or 0.
+    local subNames  = {}
+    if xop == 2 and g_buildInBinaryOps[opName] then
+        local ops = rawget(x, "__op_xs")
+        desc = desc .. varNameGenerator(ops[1]) .. " " .. opName .. " " .. varNameGenerator(ops[2])
+    else
+        desc = desc .. " " .. opName .. "("
+        if ops_count > 0 then
+            for i = 1, ops_count do
+                desc = desc .. varNameGenerator(ops[i])
+                if i < #ops then
+                    desc = desc .. ","
+                end
+            end
+        end
+        desc = desc .. ")"
+    end
 
-xvar.descToStr = function(desc)
-    local str = ""
-    dump(desc, "x", 99, function(s)
-        str = str .. s 
-    end)
-    return str
+    desc = desc ..  " = " .. tostring(node.value) .. "\t@" ..location
+    node.desc = desc
+
+    if ops_count > 0 then
+        node.children = {}
+        for i = 1, ops_count do
+            local op = ops[i]
+            if not visitMap[op] then
+                table_insert(node.children, xvar.desc_node(op,  varNameGenerator , shortPath, visitMap))
+            end
+        end
+    end
+    return node
+end
+
+xvar.depthFirstDesc = function(node, fs, rs, desc, indent)
+    desc = indent .. node.desc
+    if node.children == nil then
+        return desc
+    end
+
+    indent = indent .. fs
+    for _, child in ipairs(node.children) do
+        local childDesc = xvar.depthFirstDesc(child, fs, rs, desc, indent)
+        desc = desc .. rs .. childDesc
+    end
+    return desc
+end
+
+xvar.createVarNameGenerator = function()
+    local counter = 0
+    local map = {}
+
+    -- Function to convert a number to column-style letters (a, b, ..., z, aa, ab, ...)
+    local function to_column_letters(n)
+        local result = ""
+        while n > 0 do
+            local remainder = (n - 1) % 26
+            result = string.char(97 + remainder) .. result  -- 97 is ASCII for 'a'
+            n = math.floor((n - 1) / 26)
+        end
+        return result
+    end
+    return function(x)
+        local name = map[x]
+        if name then
+            return name
+        end
+        counter = counter + 1
+        name = to_column_letters(counter)
+        map[x] = name
+        return name
+    end
 end
 
 xvar.setTrace = function(x_trace)
-    __x_trace = x_trace 
+    __x_trace = x_trace
 end
 
 return xvar
